@@ -1,7 +1,10 @@
 import asyncio
+import base64
 from dataclasses import dataclass
+from io import BytesIO
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
+from PIL import Image
 from typing_extensions import Self
 
 from .. import binding
@@ -38,21 +41,31 @@ class SceneObject:
     id: str = 'scene'
 
 
-class Scene(Element,
-            component='scene.js',
-            dependencies=[
-                'lib/three/three.module.js',
-                'lib/three/modules/BufferGeometryUtils.js',
-                'lib/three/modules/CSS2DRenderer.js',
-                'lib/three/modules/CSS3DRenderer.js',
-                'lib/three/modules/DragControls.js',
-                'lib/three/modules/GLTFLoader.js',
-                'lib/three/modules/OrbitControls.js',
-                'lib/three/modules/STLLoader.js',
-                'lib/tween/tween.umd.js',
-            ],
-            default_classes='nicegui-scene'):
+class Scene(
+    Element,
+    component='scene.js',
+    dependencies=[
+        'lib/three/three.module.js',
+        'lib/three/modules/BufferGeometryUtils.js',
+        'lib/three/modules/CSS2DRenderer.js',
+        'lib/three/modules/CSS3DRenderer.js',
+        'lib/three/modules/DragControls.js',
+        'lib/three/modules/GLTFLoader.js',
+        'lib/three/modules/OrbitControls.js',
+        'lib/three/modules/STLLoader.js',
+        'lib/three/modules/lines/Line2.js',
+        'lib/three/modules/lines/LineGeometry.js',
+        'lib/three/modules/lines/LineMaterial.js',
+        'lib/three/modules/lines/LineSegments2.js',
+        'lib/three/modules/lines/LineSegmentsGeometry.js',
+        'lib/three/modules/lines/Wireframe.js',
+        'lib/three/modules/lines/WireframeGeometry2.js',
+        'lib/tween/tween.umd.js',
+    ],
+    default_classes='nicegui-scene',
+):
     # pylint: disable=import-outside-toplevel
+    # ruff: noqa
     from .scene_objects import AxesHelper as axes_helper
     from .scene_objects import Box as box
     from .scene_objects import Curve as curve
@@ -61,6 +74,8 @@ class Scene(Element,
     from .scene_objects import Gltf as gltf
     from .scene_objects import Group as group
     from .scene_objects import Line as line
+    from .scene_objects import Line2 as line2
+    from .scene_objects import LineSegments as line_segments
     from .scene_objects import PointCloud as point_cloud
     from .scene_objects import QuadraticBezierTube as quadratic_bezier_tube
     from .scene_objects import Ring as ring
@@ -70,19 +85,21 @@ class Scene(Element,
     from .scene_objects import Text as text
     from .scene_objects import Text3d as text3d
     from .scene_objects import Texture as texture
+    # ruff: enable=all
 
-    def __init__(self,
-                 width: int = 400,
-                 height: int = 300,
-                 grid: Union[bool, Tuple[int, int]] = True,
-                 camera: Optional[SceneCamera] = None,
-                 on_click: Optional[Handler[SceneClickEventArguments]] = None,
-                 click_events: List[str] = ['click', 'dblclick'],  # noqa: B006
-                 on_drag_start: Optional[Handler[SceneDragEventArguments]] = None,
-                 on_drag_end: Optional[Handler[SceneDragEventArguments]] = None,
-                 drag_constraints: str = '',
-                 background_color: str = '#eee',
-                 ) -> None:
+    def __init__(
+        self,
+        width: int = 400,
+        height: int = 300,
+        grid: Union[bool, Tuple[int, int]] = True,
+        camera: Optional[SceneCamera] = None,
+        on_click: Optional[Handler[SceneClickEventArguments]] = None,
+        click_events: List[str] = ['click', 'dblclick'],  # noqa: B006
+        on_drag_start: Optional[Handler[SceneDragEventArguments]] = None,
+        on_drag_end: Optional[Handler[SceneDragEventArguments]] = None,
+        drag_constraints: str = '',
+        background_color: str = '#eee',
+    ) -> None:
         """3D Scene
 
         Display a 3D scene using `three.js <https://threejs.org/>`_.
@@ -192,13 +209,16 @@ class Scene(Element,
             ctrl=e.args['ctrl_key'],
             meta=e.args['meta_key'],
             shift=e.args['shift_key'],
-            hits=[SceneClickHit(
-                object_id=hit['object_id'],
-                object_name=hit['object_name'],
-                x=hit['point']['x'],
-                y=hit['point']['y'],
-                z=hit['point']['z'],
-            ) for hit in e.args['hits']],
+            hits=[
+                SceneClickHit(
+                    object_id=hit['object_id'],
+                    object_name=hit['object_name'],
+                    x=hit['point']['x'],
+                    y=hit['point']['y'],
+                    z=hit['point']['z'],
+                )
+                for hit in e.args['hits']
+            ],
         )
         for handler in self._click_handlers:
             handle_event(handler, arguments)
@@ -217,23 +237,25 @@ class Scene(Element,
         if arguments.type == 'dragend':
             self.objects[arguments.object_id].move(arguments.x, arguments.y, arguments.z)
 
-        for handler in (self._drag_start_handlers if arguments.type == 'dragstart' else self._drag_end_handlers):
+        for handler in self._drag_start_handlers if arguments.type == 'dragstart' else self._drag_end_handlers:
             handle_event(handler, arguments)
 
     def __len__(self) -> int:
         return len(self.objects)
 
-    def move_camera(self,
-                    x: Optional[float] = None,
-                    y: Optional[float] = None,
-                    z: Optional[float] = None,
-                    look_at_x: Optional[float] = None,
-                    look_at_y: Optional[float] = None,
-                    look_at_z: Optional[float] = None,
-                    up_x: Optional[float] = None,
-                    up_y: Optional[float] = None,
-                    up_z: Optional[float] = None,
-                    duration: float = 0.5) -> None:
+    def move_camera(
+        self,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        z: Optional[float] = None,
+        look_at_x: Optional[float] = None,
+        look_at_y: Optional[float] = None,
+        look_at_z: Optional[float] = None,
+        up_x: Optional[float] = None,
+        up_y: Optional[float] = None,
+        up_z: Optional[float] = None,
+        duration: float = 0.5,
+    ) -> None:
         """Move the camera to a new position.
 
         :param x: camera x position
@@ -256,10 +278,19 @@ class Scene(Element,
         self.camera.up_x = self.camera.up_x if up_x is None else up_x
         self.camera.up_y = self.camera.up_y if up_y is None else up_y
         self.camera.up_z = self.camera.up_z if up_z is None else up_z
-        self.run_method('move_camera',
-                        self.camera.x, self.camera.y, self.camera.z,
-                        self.camera.look_at_x, self.camera.look_at_y, self.camera.look_at_z,
-                        self.camera.up_x, self.camera.up_y, self.camera.up_z, duration)
+        self.run_method(
+            'move_camera',
+            self.camera.x,
+            self.camera.y,
+            self.camera.z,
+            self.camera.look_at_x,
+            self.camera.look_at_y,
+            self.camera.look_at_z,
+            self.camera.up_x,
+            self.camera.up_y,
+            self.camera.up_z,
+            duration,
+        )
 
     async def get_camera(self) -> Dict[str, Any]:
         """Get the current camera parameters.
@@ -268,6 +299,43 @@ class Scene(Element,
         the result of this method includes the current camera pose caused by the user navigating the scene in the browser.
         """
         return await self.run_method('get_camera')
+
+    async def render_as_png(self, size_or_scale: tuple[int, int] | float | int | None = None) -> Image.Image:
+        """Render the scene as PNG and return PIL Image.
+
+        :param size_or_scale: either a tuple of (width, height) or a scale factor
+        :return: PIL Image object
+        """
+
+        width = None
+        height = None
+        scale = 1.0
+        if isinstance(size_or_scale, tuple):
+            width, height = size_or_scale
+        elif isinstance(size_or_scale, (int, float)):
+            scale = size_or_scale
+
+        # Get base64 image data from JavaScript
+        response: dict = await self.run_method('render_as_png', width, height, scale, timeout=15)
+
+        base64_data = await self.client.wait_for_complete_image(timeout=5)
+        # Combine all base64 images into one
+        # Remove the data URL prefix (data:image/png;base64,)
+        image_data = base64_data.split(',')[1]
+
+        # Decode base64 to bytes
+        image_bytes = base64.b64decode(image_data)
+
+        return Image.open(BytesIO(image_bytes))
+
+    async def save_as_png(self, filename: str, size_or_scale: tuple[int, int] | float | None = None) -> None:
+        """Render and save the scene as PNG file.
+
+        :param filename: path where to save the image
+        :param size_or_scale: either a tuple of (width, height) or a scale factor
+        """
+        image = await self.render_as_png(size_or_scale)
+        image.save(filename)
 
     def _handle_delete(self) -> None:
         binding.remove(list(self.objects.values()))
@@ -279,7 +347,8 @@ class Scene(Element,
         :param predicate: function which returns `True` for objects which should be deleted
         """
         for obj in list(self.objects.values()):
-            if predicate(obj) and obj.id in self.objects:  # NOTE: object might have been deleted already by its parent
+            # NOTE: object might have been deleted already by its parent
+            if predicate(obj) and obj.id in self.objects:
                 obj.delete()
 
     def clear(self) -> None:

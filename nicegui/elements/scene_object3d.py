@@ -46,12 +46,21 @@ class Object3D:
     def data(self) -> List[Any]:
         """Data to be sent to the frontend."""
         return [
-            self.type, self.id, self.parent.id, self.args,
+            self.type,
+            self.id,
+            self.parent.id,
+            self.args,
             self.name,
-            self.color, self.opacity, self.side_,
-            self.x, self.y, self.z,
+            self.color,
+            self.opacity,
+            self.side_,
+            self.x,
+            self.y,
+            self.z,
             self.R,
-            self.sx, self.sy, self.sz,
+            self.sx,
+            self.sy,
+            self.sz,
             self.visible_,
             self.draggable_,
         ]
@@ -90,11 +99,12 @@ class Object3D:
     def _delete(self) -> None:
         self.scene.run_method('delete', self.id)
 
-    def material(self,
-                 color: Optional[str] = '#ffffff',
-                 opacity: float = 1.0,
-                 side: Literal['front', 'back', 'both'] = 'front',
-                 ) -> Self:
+    def material(
+        self,
+        color: Optional[str] = '#ffffff',
+        opacity: float = 1.0,
+        side: Literal['front', 'back', 'both'] = 'front',
+    ) -> Self:
         """Set the color and opacity of the object.
 
         :param color: CSS color string (default: '#ffffff')
@@ -223,18 +233,24 @@ class Object3D:
             [0, 0, 0, 1],
         ]
         M2_inv: List[List[float]] = [
-            [parent.R[0][0], parent.R[1][0], parent.R[2][0],
-             - parent.R[0][0] * parent.x
-             - parent.R[1][0] * parent.y
-             - parent.R[2][0] * parent.z],
-            [parent.R[0][1], parent.R[1][1], parent.R[2][1],
-             - parent.R[0][1] * parent.x
-             - parent.R[1][1] * parent.y
-             - parent.R[2][1] * parent.z],
-            [parent.R[0][2], parent.R[1][2], parent.R[2][2],
-             - parent.R[0][2] * parent.x
-             - parent.R[1][2] * parent.y
-             - parent.R[2][2] * parent.z],
+            [
+                parent.R[0][0],
+                parent.R[1][0],
+                parent.R[2][0],
+                -parent.R[0][0] * parent.x - parent.R[1][0] * parent.y - parent.R[2][0] * parent.z,
+            ],
+            [
+                parent.R[0][1],
+                parent.R[1][1],
+                parent.R[2][1],
+                -parent.R[0][1] * parent.x - parent.R[1][1] * parent.y - parent.R[2][1] * parent.z,
+            ],
+            [
+                parent.R[0][2],
+                parent.R[1][2],
+                parent.R[2][2],
+                -parent.R[0][2] * parent.x - parent.R[1][2] * parent.y - parent.R[2][2] * parent.z,
+            ],
             [0, 0, 0, 1],
         ]
         M: List[List[float]] = [
@@ -257,7 +273,10 @@ class Object3D:
                 M2_inv[2][0] * M1[0][3] + M2_inv[2][1] * M1[1][3] + M2_inv[2][2] * M1[2][3] + M2_inv[2][3],
             ],
             [
-                0, 0, 0, 1,
+                0,
+                0,
+                0,
+                1,
             ],
         ]
         self.x = M[0][3]
@@ -318,7 +337,10 @@ class Object3D:
                 M2[2][0] * M1[0][3] + M2[2][1] * M1[1][3] + M2[2][2] * M1[2][3] + M2[2][3],
             ],
             [
-                0, 0, 0, 1,
+                0,
+                0,
+                0,
+                1,
             ],
         ]
         self.x = M[0][3]

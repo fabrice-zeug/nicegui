@@ -136,6 +136,9 @@ target-version = "py38"
 indent-width = 4
 line-length = 120
 
+[tool.ruff.format]
+quote-style = "single"
+
 [tool.ruff.lint.flake8-quotes]
 inline-quotes = "single"
 multiline-quotes = "single"
@@ -173,6 +176,7 @@ ignore = [
     "PLR0913", # too many arguments
     "PLR0915", # too many statements
     "PLR2004", # magic value comparison
+    "UP045", # use optional[] for optional type
 ]
 exclude = [
     "website/documentation/content/*",

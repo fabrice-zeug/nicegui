@@ -5,6 +5,9 @@ import { DragControls } from "DragControls";
 import { GLTFLoader } from "GLTFLoader";
 import { OrbitControls } from "OrbitControls";
 import { STLLoader } from "STLLoader";
+import { Line2 } from 'https://unpkg.com/three@latest/examples/jsm/lines/Line2.js';
+import { LineGeometry } from 'https://unpkg.com/three@latest/examples/jsm/lines/LineGeometry.js';
+import { LineMaterial } from 'https://unpkg.com/three@latest/examples/jsm/lines/LineMaterial.js';
 import "tween";
 
 function texture_geometry(coords) {
@@ -109,6 +112,7 @@ export default {
         antialias: true,
         alpha: true,
         canvas: this.$el.children[0],
+        preserveDrawingBuffer: true, // Add this line
       });
     } catch {
       this.$el.innerHTML = "Could not create WebGL renderer.";
@@ -235,9 +239,15 @@ export default {
       } else if (type == "line") {
         const start = new THREE.Vector3(...args[0]);
         const end = new THREE.Vector3(...args[1]);
+        const width = args[2] ?? 1;
         const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-        const material = new THREE.LineBasicMaterial({ transparent: true });
+        const material = new THREE.LineBasicMaterial({ transparent: true, linewidth: width });
         mesh = new THREE.Line(geometry, material);
+      } else if (type == "line2") {
+        const width = args[1] ?? 0.001;
+        const geometry = new LineGeometry().setPositions(args[0].flat());
+        const material = new LineMaterial({ transparent: true, linewidth: width,worldUnits:true });
+        mesh = new Line2(geometry, material);
       } else if (type == "curve") {
         const curve = new THREE.CubicBezierCurve3(
           new THREE.Vector3(...args[0]),
@@ -290,6 +300,12 @@ export default {
       } else if (type == "axes_helper") {
         mesh = new THREE.AxesHelper(args[0]);
         mesh.material.transparent = true;
+      } else if (type == "line_segments") {
+        const geometry = new THREE.BufferGeometry();
+        const material = new THREE.LineBasicMaterial({ transparent: true, linewidth: args[1] || 1 });
+        const positions = new Float32Array(args[0].flat());
+        geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        mesh = new THREE.LineSegments(geometry, material);
       } else {
         let geometry;
         const wireframe = args.pop();
@@ -536,6 +552,64 @@ export default {
         this.draggable(id, draggable);
       }
     },
+    render_as_png(width = null, height = null, scale = 1.0) {
+      console.log("Rendering scene as PNG...");
+      // Store original size
+      const originalWidth = this.renderer.domElement.width;
+      const originalHeight = this.renderer.domElement.height;
+      
+      // Use provided dimensions or default to original size
+      var newWidth = width || originalWidth;
+      var newHeight = height || originalHeight;
+      newWidth *= scale;
+      newHeight *= scale;
+      
+      // Temporarily increase renderer resolution
+      this.renderer.setSize(newWidth, newHeight, false);
+      this.text_renderer.setSize(newWidth, newHeight);
+      this.text3d_renderer.setSize(newWidth, newHeight);
+      
+      // Update camera aspect ratio
+      this.camera.aspect = newWidth / newHeight;
+      if (this.camera_type === "orthographic") {
+        this.camera.left = (-this.camera.aspect * this.camera_params.size) / 2;
+        this.camera.right = (this.camera.aspect * this.camera_params.size) / 2;
+      }
+      this.camera.updateProjectionMatrix();
+      
+      // Render and capture
+      this.renderer.render(this.scene, this.camera);
+      console.log("Rendering text layers...");
+      this.text_renderer.render(this.scene, this.camera);
+      console.log("Rendering 3d text layers...");
+      this.text3d_renderer.render(this.scene, this.camera);
+      
+      // Get image data as base64
+      const imgData = this.renderer.domElement.toDataURL('image/png');
+      const chunkSize = 512 * 1024; // 512 KB
+      const numberChunks = Math.ceil(imgData.length / chunkSize);
+      for (let i = 0; i < numberChunks; i++) {
+        const chunk = imgData.slice(i * chunkSize, (i + 1) * chunkSize);
+        window.socket.emit("rendered_image", {client_id: window.clientId, index: i, total: numberChunks, chunk: chunk });
+      }
+    
+      // Restore original size and settings
+      this.renderer.setSize(originalWidth, originalHeight, false);
+      this.text_renderer.setSize(originalWidth, originalHeight);
+      this.text3d_renderer.setSize(originalWidth, originalHeight);
+      
+      // Restore camera
+      this.camera.aspect = originalWidth / originalHeight;
+      if (this.camera_type === "orthographic") {
+        this.camera.left = (-this.camera.aspect * this.camera_params.size) / 2;
+        this.camera.right = (this.camera.aspect * this.camera_params.size) / 2;
+      }
+      this.camera.updateProjectionMatrix();
+      console.log(`Scene rendered as PNG.`);
+      
+      // Return the filename
+      return {numberChunks: numberChunks};
+    }
   },
 
   props: {

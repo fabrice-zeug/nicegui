@@ -38,7 +38,7 @@ class SocketIoApp(socketio.ASGIApp):
     async def __call__(self, scope, receive, send):
         root_path = scope.get('root_path')
         if root_path and scope['path'].startswith(root_path):
-            scope['path'] = scope['path'][len(root_path):]
+            scope['path'] = scope['path'][len(root_path) :]
         return await super().__call__(scope, receive, send)
 
 
@@ -110,13 +110,15 @@ def _get_dynamic_resource(name: str) -> Response:
 async def _startup() -> None:
     """Handle the startup event."""
     if not app.config.has_run_config:
-        raise RuntimeError('\n\n'
-                           'You must call ui.run() to start the server.\n'
-                           'If ui.run() is behind a main guard\n'
-                           '   if __name__ == "__main__":\n'
-                           'remove the guard or replace it with\n'
-                           '   if __name__ in {"__main__", "__mp_main__"}:\n'
-                           'to allow for multiprocessing.')
+        raise RuntimeError(
+            '\n\n'
+            'You must call ui.run() to start the server.\n'
+            'If ui.run() is behind a main guard\n'
+            '   if __name__ == "__main__":\n'
+            'remove the guard or replace it with\n'
+            '   if __name__ in {"__main__", "__mp_main__"}:\n'
+            'to allow for multiprocessing.'
+        )
     await welcome.collect_urls()
     # NOTE ping interval and timeout need to be lower than the reconnect timeout, but can't be too low
     sio.eio.ping_interval = max(app.config.reconnect_timeout * 0.8, 4)
@@ -206,6 +208,14 @@ def _on_javascript_response(_: str, msg: Dict) -> None:
     if not client:
         return
     client.handle_javascript_response(msg)
+
+
+@sio.on('rendered_image')
+def _on_rendered_image(_: str, msg: Dict) -> None:
+    client = Client.instances.get(msg['client_id'])
+    if not client:
+        return
+    client.handle_rendered_image(msg)
 
 
 @sio.on('ack')

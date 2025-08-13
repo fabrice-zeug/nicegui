@@ -6,6 +6,7 @@ import time
 import uuid
 from collections import defaultdict
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, ClassVar, Dict, Iterable, Iterator, List, Optional, Union
 
@@ -33,21 +34,32 @@ if TYPE_CHECKING:
 templates = Jinja2Templates(Path(__file__).parent / 'templates')
 
 
+@dataclass
+class ImageBuffer:
+    number_chunks: int
+    current_index: int = 0
+    data: str = ''
+
+    def complete(self) -> bool:
+        """Check if the image buffer is complete."""
+        return self.current_index == self.number_chunks
+
+
 class Client:
     page_routes: ClassVar[Dict[Callable[..., Any], str]] = {}
-    '''Maps page builders to their routes.'''
+    """Maps page builders to their routes."""
 
     instances: ClassVar[Dict[str, Client]] = {}
-    '''Maps client IDs to clients.'''
+    """Maps client IDs to clients."""
 
     auto_index_client: Client
-    '''The client that is used to render the auto-index page.'''
+    """The client that is used to render the auto-index page."""
 
     shared_head_html = ''
-    '''HTML to be inserted in the <head> of every page template.'''
+    """HTML to be inserted in the <head> of every page template."""
 
     shared_body_html = ''
-    '''HTML to be inserted in the <body> of every page template.'''
+    """HTML to be inserted in the <body> of every page template."""
 
     def __init__(self, page: page, *, request: Optional[Request]) -> None:
         self.request: Optional[Request] = request
@@ -83,6 +95,8 @@ class Client:
         self._body_html = ''
 
         self.storage = ObservableDict()
+
+        self.image_buffer: Optional[ImageBuffer] = None
 
         self.connect_handlers: List[Union[Callable[..., Any], Awaitable]] = []
         self.disconnect_handlers: List[Union[Callable[..., Any], Awaitable]] = []
@@ -132,16 +146,20 @@ class Client:
         """Build a FastAPI response for the client."""
         self.outbox.updates.clear()
         prefix = request.headers.get('X-Forwarded-Prefix', request.scope.get('root_path', ''))
-        elements = json.dumps({
-            id: element._to_dict() for id, element in self.elements.items()  # pylint: disable=protected-access
-        })
+        elements = json.dumps(
+            {
+                id: element._to_dict()
+                for id, element in self.elements.items()  # pylint: disable=protected-access
+            }
+        )
         socket_io_js_query_params = {
             **core.app.config.socket_io_js_query_params,
             'client_id': self.id,
             'next_message_id': self.outbox.next_message_id,
         }
-        vue_html, vue_styles, vue_scripts, imports, js_imports, js_imports_urls = \
-            generate_resources(prefix, self.elements.values())
+        vue_html, vue_styles, vue_scripts, imports, js_imports, js_imports_urls = generate_resources(
+            prefix, self.elements.values()
+        )
         return templates.TemplateResponse(
             request=request,
             name='index.html',
@@ -149,12 +167,17 @@ class Client:
                 'request': request,
                 'version': __version__,
                 'elements': elements.replace('&', '&amp;')
-                                    .replace('<', '&lt;')
-                                    .replace('>', '&gt;')
-                                    .replace('`', '&#96;')
-                                    .replace('$', '&#36;'),
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
+                .replace('`', '&#96;')
+                .replace('$', '&#36;'),
                 'head_html': self.head_html,
-                'body_html': '<style>' + '\n'.join(vue_styles) + '</style>\n' + self.body_html + '\n' + '\n'.join(vue_html),
+                'body_html': '<style>'
+                + '\n'.join(vue_styles)
+                + '</style>\n'
+                + self.body_html
+                + '\n'
+                + '\n'.join(vue_html),
                 'vue_scripts': '\n'.join(vue_scripts),
                 'imports': json.dumps(imports),
                 'js_imports': '\n'.join(js_imports),
@@ -224,8 +247,10 @@ class Client:
 
         async def send_and_wait():
             if self is self.auto_index_client:
-                raise RuntimeError('Cannot await JavaScript responses on the auto-index page. '
-                                   'There could be multiple clients connected and it is not clear which one to wait for.')
+                raise RuntimeError(
+                    'Cannot await JavaScript responses on the auto-index page. '
+                    'There could be multiple clients connected and it is not clear which one to wait for.'
+                )
             self.outbox.enqueue_message('run_javascript', {'code': code, 'request_id': request_id}, target_id)
             return await JavaScriptRequest(request_id, timeout=timeout)
 
@@ -285,8 +310,10 @@ class Client:
                 self._delete_tasks.pop(document_id)
                 if not self.shared:
                     self.delete()
-        self._delete_tasks[document_id] = \
-            background_tasks.create(delete_content(), name=f'delete content {document_id}')
+
+        self._delete_tasks[document_id] = background_tasks.create(
+            delete_content(), name=f'delete content {document_id}'
+        )
 
     def _cancel_delete_task(self, document_id: str) -> None:
         if document_id in self._delete_tasks:
@@ -306,22 +333,48 @@ class Client:
         """Store the result of a JavaScript command."""
         JavaScriptRequest.resolve(msg['request_id'], msg.get('result'))
 
+    def handle_rendered_image(self, msg: Dict) -> None:
+        """Store the result of a JavaScript command."""
+        if self.image_buffer is None or self.image_buffer.complete():
+            self.image_buffer = ImageBuffer(number_chunks=msg['total'])
+        if self.image_buffer.current_index != msg['index']:
+            raise RuntimeError(
+                f'Expected image chunk {self.image_buffer.current_index}, but got {msg["index"]}. '
+                'This is likely a bug in the client code.'
+            )
+        self.image_buffer.data += msg['chunk']
+        self.image_buffer.current_index += 1
+
+    async def wait_for_complete_image(self, timeout: float = 0.0) -> str:
+        """Wait until the image buffer is complete and return the image data."""
+        start_time = time.time()
+        while self.image_buffer is None or not self.image_buffer.complete():
+            if timeout > 0 and time.time() - start_time > timeout:
+                raise TimeoutError(f'Image buffer not complete after {timeout} seconds.')
+            await asyncio.sleep(0.1)
+        data = self.image_buffer.data
+        return data
+
     def safe_invoke(self, func: Union[Callable[..., Any], Awaitable]) -> None:
         """Invoke the potentially async function in the client context and catch any exceptions."""
         func_name = func.__name__ if hasattr(func, '__name__') else str(func)
         try:
             if isinstance(func, Awaitable):
+
                 async def func_with_client():
                     with self:
                         await func
+
                 background_tasks.create(func_with_client(), name=f'func with client {self.id} {func_name}')
             else:
                 with self:
                     result = func(self) if len(inspect.signature(func).parameters) == 1 else func()
                 if helpers.is_coroutine_function(func) and not isinstance(result, asyncio.Task):
+
                     async def result_with_client():
                         with self:
                             await result
+
                     background_tasks.create(result_with_client(), name=f'result with client {self.id} {func_name}')
         except Exception as e:
             core.app.handle_exception(e)
@@ -354,10 +407,12 @@ class Client:
     def check_existence(self) -> None:
         """Check if the client still exists and print a warning if it doesn't."""
         if self._deleted:
-            helpers.warn_once('Client has been deleted but is still being used. '
-                              'This is most likely a bug in your application code. '
-                              'See https://github.com/zauberzeug/nicegui/issues/3028 for more information.',
-                              stack_info=True)
+            helpers.warn_once(
+                'Client has been deleted but is still being used. '
+                'This is most likely a bug in your application code. '
+                'See https://github.com/zauberzeug/nicegui/issues/3028 for more information.',
+                stack_info=True,
+            )
 
     @contextmanager
     def individual_target(self, socket_id: str) -> Iterator[None]:

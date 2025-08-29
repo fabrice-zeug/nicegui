@@ -7,6 +7,8 @@ import { OrbitControls } from "OrbitControls";
 import { STLLoader } from "STLLoader";
 import { Line2 } from 'https://unpkg.com/three@latest/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'https://unpkg.com/three@latest/examples/jsm/lines/LineGeometry.js';
+import { LineSegments2 } from 'https://unpkg.com/three@latest/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'https://unpkg.com/three@latest/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'https://unpkg.com/three@latest/examples/jsm/lines/LineMaterial.js';
 import "tween";
 
@@ -246,7 +248,7 @@ export default {
       } else if (type == "line2") {
         const width = args[1] ?? 0.001;
         const geometry = new LineGeometry().setPositions(args[0].flat());
-        const material = new LineMaterial({ transparent: true, linewidth: width,worldUnits:true });
+        const material = new LineMaterial({ transparent: true, linewidth: width, worldUnits: true });
         mesh = new Line2(geometry, material);
       } else if (type == "curve") {
         const curve = new THREE.CubicBezierCurve3(
@@ -301,11 +303,15 @@ export default {
         mesh = new THREE.AxesHelper(args[0]);
         mesh.material.transparent = true;
       } else if (type == "line_segments") {
-        const geometry = new THREE.BufferGeometry();
-        const material = new THREE.LineBasicMaterial({ transparent: true, linewidth: args[1] || 1 });
-        const positions = new Float32Array(args[0].flat());
-        geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-        mesh = new THREE.LineSegments(geometry, material);
+        // const geometry = new THREE.BufferGeometry();
+        // const material = new THREE.LineBasicMaterial({ transparent: true, linewidth: args[1] || 1 });
+        // const positions = new Float32Array(args[0].flat());
+        // geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        // mesh = new THREE.LineSegments(geometry, material);
+        const width = args[1] ?? 0.001;
+        const geometry = new LineSegmentsGeometry().setPositions(args[0].flat());
+        const material = new LineMaterial({ transparent: true, linewidth: width, worldUnits: true });
+        mesh = new LineSegments2(geometry, material);
       } else {
         let geometry;
         const wireframe = args.pop();
@@ -313,6 +319,8 @@ export default {
         if (type == "sphere") geometry = new THREE.SphereGeometry(...args);
         if (type == "cylinder") geometry = new THREE.CylinderGeometry(...args);
         if (type == "ring") geometry = new THREE.RingGeometry(...args);
+        if (type == "torus") geometry = new THREE.TorusGeometry(...args);
+        if (type == "cone") geometry = new THREE.ConeGeometry(...args);
         if (type == "quadratic_bezier_tube") {
           const curve = new THREE.QuadraticBezierCurve3(
             new THREE.Vector3(...args[0]),
@@ -365,6 +373,7 @@ export default {
       material.color.set(vertexColors ? "#ffffff" : color);
       material.needsUpdate = material.vertexColors != vertexColors;
       material.vertexColors = vertexColors;
+      material.transparent = opacity < 1.0;
       material.opacity = opacity;
       if (side == "front") material.side = THREE.FrontSide;
       else if (side == "back") material.side = THREE.BackSide;
@@ -552,23 +561,24 @@ export default {
         this.draggable(id, draggable);
       }
     },
-    render_as_png(width = null, height = null, scale = 1.0) {
+    async render_as_png(width = null, height = null, scale = 1.0) {
       console.log("Rendering scene as PNG...");
       // Store original size
       const originalWidth = this.renderer.domElement.width;
       const originalHeight = this.renderer.domElement.height;
-      
+
       // Use provided dimensions or default to original size
       var newWidth = width || originalWidth;
       var newHeight = height || originalHeight;
       newWidth *= scale;
       newHeight *= scale;
-      
+      scale = scale * (width || originalWidth) / originalWidth; // Adjust scale based on width
+
       // Temporarily increase renderer resolution
       this.renderer.setSize(newWidth, newHeight, false);
       this.text_renderer.setSize(newWidth, newHeight);
       this.text3d_renderer.setSize(newWidth, newHeight);
-      
+
       // Update camera aspect ratio
       this.camera.aspect = newWidth / newHeight;
       if (this.camera_type === "orthographic") {
@@ -576,28 +586,70 @@ export default {
         this.camera.right = (this.camera.aspect * this.camera_params.size) / 2;
       }
       this.camera.updateProjectionMatrix();
-      
+
       // Render and capture
       this.renderer.render(this.scene, this.camera);
-      console.log("Rendering text layers...");
       this.text_renderer.render(this.scene, this.camera);
-      console.log("Rendering 3d text layers...");
       this.text3d_renderer.render(this.scene, this.camera);
-      
-      // Get image data as base64
-      const imgData = this.renderer.domElement.toDataURL('image/png');
+
+      // Combine WebGL canvas and CSS2DRenderer text
+      const combinedCanvas = document.createElement('canvas');
+      combinedCanvas.width = newWidth;
+      combinedCanvas.height = newHeight;
+      const ctx = combinedCanvas.getContext('2d');
+      ctx.drawImage(this.renderer.domElement, 0, 0);
+
+      // Scale text size for CSS2DRenderer
+      const textDivs = this.text_renderer.domElement.querySelectorAll('div');
+      textDivs.forEach(div => {
+        const originalFontSize = window.getComputedStyle(div).fontSize;
+        div.setAttribute('data-original-font-size', originalFontSize);
+        // Increase font size by scale factor
+        div.style.fontSize = `calc(${originalFontSize} * ${scale})`;
+      });
+
+      const colorBar = document.querySelector('.color-bar');
+      let colorBarClone = null;
+      if (colorBar) {
+        colorBarClone = colorBar.cloneNode(true);
+        // Optionally scale the color bar font size as well
+        colorBarClone.style.fontSize = `calc(${window.getComputedStyle(colorBar).fontSize} * ${scale})`;
+        this.text_renderer.domElement.appendChild(colorBarClone);
+      }
+
+      // Use html2canvas to render the text DOM to an image
+      const textImage = await window.html2canvas(this.text_renderer.domElement, { backgroundColor: null, width: newWidth, height: newHeight });
+      ctx.drawImage(textImage, 0, 0);
+
+      // Remove the color bar clone after rendering
+      if (colorBarClone) {
+        this.text_renderer.domElement.removeChild(colorBarClone);
+      }
+
+
+
+      // Restore original font sizes
+      textDivs.forEach(div => {
+        const originalFontSize = div.getAttribute('data-original-font-size');
+        if (originalFontSize) {
+          div.style.fontSize = originalFontSize;
+          div.removeAttribute('data-original-font-size');
+        }
+      });
+
+      const imgData = combinedCanvas.toDataURL('image/png');
       const chunkSize = 512 * 1024; // 512 KB
       const numberChunks = Math.ceil(imgData.length / chunkSize);
       for (let i = 0; i < numberChunks; i++) {
         const chunk = imgData.slice(i * chunkSize, (i + 1) * chunkSize);
-        window.socket.emit("rendered_image", {client_id: window.clientId, index: i, total: numberChunks, chunk: chunk });
+        window.socket.emit("rendered_image", { client_id: window.clientId, index: i, total: numberChunks, chunk: chunk });
       }
-    
+
       // Restore original size and settings
       this.renderer.setSize(originalWidth, originalHeight, false);
       this.text_renderer.setSize(originalWidth, originalHeight);
       this.text3d_renderer.setSize(originalWidth, originalHeight);
-      
+
       // Restore camera
       this.camera.aspect = originalWidth / originalHeight;
       if (this.camera_type === "orthographic") {
@@ -606,9 +658,9 @@ export default {
       }
       this.camera.updateProjectionMatrix();
       console.log(`Scene rendered as PNG.`);
-      
+
       // Return the filename
-      return {numberChunks: numberChunks};
+      return { numberChunks: numberChunks };
     }
   },
 

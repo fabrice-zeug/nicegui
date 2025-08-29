@@ -110,6 +110,62 @@ class Ring(Object3D):
         )
 
 
+class Torus(Object3D):
+    def __init__(
+        self,
+        radius: float = 1.0,
+        tube: float = 0.4,
+        radial_segments: int = 12,
+        tubular_segments: int = 48,
+        arc: float = 2 * math.pi,
+        wireframe: bool = False,
+    ) -> None:
+        """Torus
+
+        This element is based on Three.js' `TorusGeometry <https://threejs.org/docs/index.html#api/en/geometries/TorusGeometry>`_ object.
+        It is used to create a torus-shaped mesh.
+
+        :param radius: radius of the torus (default: 1.0)
+        :param tube: radius of the tube (default: 0.4)
+        :param radial_segments: number of radial segments (default: 12)
+        :param tubular_segments: number of tubular segments (default: 48)
+        :param arc: central angle in radians (default: 2π)
+        :param wireframe: whether to display the torus as a wireframe (default: `False`)
+        """
+        super().__init__('torus', radius, tube, radial_segments, tubular_segments, arc, wireframe)
+
+
+class Cone(Object3D):
+    def __init__(
+        self,
+        radius: float = 1.0,
+        height: float = 1.0,
+        radial_segments: int = 32,
+        height_segments: int = 1,
+        open_ended: bool = False,
+        theta_start: float = 0,
+        theta_length: float = 2 * math.pi,
+        wireframe: bool = False,
+    ) -> None:
+        """Cone
+
+        This element is based on Three.js' `ConeGeometry <https://threejs.org/docs/index.html#api/en/geometries/ConeGeometry>`_ object.
+        It is used to create a cone-shaped mesh.
+
+        :param radius: radius of the base of the cone (default: 1.0)
+        :param height: height of the cone (default: 1.0)
+        :param radial_segments: number of radial segments (default: 32)
+        :param height_segments: number of height segments (default: 1)
+        :param open_ended: whether the cone should be open-ended (default: `False`)
+        :param theta_start: start angle in radians (default: 0)
+        :param theta_length: central angle of the circular sector in radians (default: 2π)
+        :param wireframe: whether to display the cone as a wireframe (default: `False`)
+        """
+        super().__init__(
+            'cone', radius, height, radial_segments, height_segments, open_ended, theta_start, theta_length, wireframe
+        )
+
+
 class QuadraticBezierTube(Object3D):
     def __init__(
         self,
@@ -229,16 +285,18 @@ class LineSegments(Object3D):
     def __init__(
         self,
         points: List[List[float]],
-        width: float = 1.0,
+        width: float = 0.001,
     ) -> None:
         """Line Segments
 
-        This element is based on Three.js' `LineSegments <https://threejs.org/docs/index.html#api/en/objects/LineSegments>`_ object.
-        It is used to create a series of connected line segments.
+        This element is based on Three.js' `LineSegments2 <https://threejs.org/docs/index.html#api/en/objects/LineSegments2>`_ object.
+        It is used to create a series of line segments.
 
         :param points: list of points defining the line segments
-        :param width: width of the lines (default: 1.0)
+        :param width: width of the line segments (default: 0.001)
         """
+        if len(points) % 2 != 0:
+            raise ValueError('LineSegments requires an even number of points (pairs of start and end points).')
         super().__init__('line_segments', points, width)
 
 

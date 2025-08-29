@@ -70,6 +70,7 @@ class Scene(
     from .scene_objects import Box as box
     from .scene_objects import Curve as curve
     from .scene_objects import Cylinder as cylinder
+    from .scene_objects import Cone as cone
     from .scene_objects import Extrusion as extrusion
     from .scene_objects import Gltf as gltf
     from .scene_objects import Group as group
@@ -85,6 +86,7 @@ class Scene(
     from .scene_objects import Text as text
     from .scene_objects import Text3d as text3d
     from .scene_objects import Texture as texture
+    from .scene_objects import Torus as torus
     # ruff: enable=all
 
     def __init__(
